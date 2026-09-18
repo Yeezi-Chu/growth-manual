@@ -44,9 +44,50 @@ App.registerPage('dashboard', function () {
 
   let html = `
     <h1 class="page-title">🏠 首页</h1>
-    <div class="card" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; border: none;">
-      <div style="font-size: 24px; font-weight: 700; margin-bottom: 8px;">${greeting}，${memberName}！</div>
-      <div style="font-size: 14px; opacity: 0.9;">${App.utils.getMonthLabel(monthKey)} · 今日家庭概况</div>
+
+    <div class="hero-banner">
+      <div class="hero-greeting">${greeting}，${memberName}！</div>
+      <div class="hero-date">${App.utils.getMonthLabel(monthKey)} · ${now.getFullYear()}年 · 今日家庭概况</div>
+      <div class="hero-weather">
+        <span class="hero-weather-icon">${getWeatherIcon()}</span>
+        <span>${getSeasonalBadge()}</span>
+      </div>
+      <div class="hero-decoration">🏡</div>
+    </div>
+
+    ${getWarmTip(urgentMemos, pendingMemos, todayChores)}
+
+    <div class="family-members-strip">
+      ${members.map(m => `
+        <div class="family-member-chip" onclick="App.navigate('settings')">
+          <div class="family-member-avatar" style="background: ${Storage.getMemberColor(m.id)};">
+            ${m.avatar || m.name.charAt(0)}
+          </div>
+          <div class="family-member-name">${m.name}</div>
+          <div class="family-member-role">${m.role || '家庭成员'}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="quick-actions">
+      <button class="quick-action-btn" onclick="App.navigate('bills'); setTimeout(()=>Bills.showAdd(),100)">
+        <span class="quick-action-icon">🧾</span><span>记账单</span>
+      </button>
+      <button class="quick-action-btn" onclick="App.navigate('finance'); setTimeout(()=>Finance.showAdd(),100)">
+        <span class="quick-action-icon">💰</span><span>记收支</span>
+      </button>
+      <button class="quick-action-btn" onclick="App.navigate('chores'); setTimeout(()=>Chores.showAdd(),100)">
+        <span class="quick-action-icon">🧹</span><span>记家务</span>
+      </button>
+      <button class="quick-action-btn" onclick="App.navigate('memo'); setTimeout(()=>Memo.showAdd(),100)">
+        <span class="quick-action-icon">📝</span><span>写备忘</span>
+      </button>
+      <button class="quick-action-btn" onclick="App.navigate('community'); setTimeout(()=>Community.showAdd(),100)">
+        <span class="quick-action-icon">💬</span><span>发动态</span>
+      </button>
+      <button class="quick-action-btn" onclick="App.navigate('album'); setTimeout(()=>Album.triggerUpload(),100)">
+        <span class="quick-action-icon">📸</span><span>传照片</span>
+      </button>
     </div>
 
     <div class="stat-grid">
@@ -172,22 +213,70 @@ App.registerPage('dashboard', function () {
 
     <div class="card">
       <div class="section-header">
-        <span class="section-title">👨‍👩‍👧‍👦 家庭成员 (${members.length})</span>
-        <button class="btn btn-outline btn-sm" onclick="App.navigate('settings')">管理</button>
+        <span class="section-title">📊 本月数据概览</span>
       </div>
-      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        ${members.map(m => `
-          <div style="text-align: center; cursor: pointer;" onclick="App.navigate('settings')">
-            <div class="user-avatar" style="background: ${Storage.getMemberColor(m.id)}; margin: 0 auto 4px; width: 48px; height: 48px; font-size: 22px;">
-              ${m.avatar || m.name.charAt(0)}
-            </div>
-            <div style="font-size: 13px; font-weight: 600;">${m.name}</div>
-            <div style="font-size: 11px; color: var(--text-secondary);">${m.role || ''}</div>
-          </div>
-        `).join('')}
+      <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+        <div style="flex: 1; min-width: 100px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: var(--primary);">${bills.length}</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">账单记录</div>
+        </div>
+        <div style="flex: 1; min-width: 100px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: var(--success);">${finances.length}</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">收支记录</div>
+        </div>
+        <div style="flex: 1; min-width: 100px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: var(--secondary);">${chores.length}</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">家务记录</div>
+        </div>
+        <div style="flex: 1; min-width: 100px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: var(--purple);">${albumItems.length}</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">家庭相册</div>
+        </div>
+        <div style="flex: 1; min-width: 100px; text-align: center;">
+          <div style="font-size: 28px; font-weight: 700; color: var(--warm);">${communityPosts.length}</div>
+          <div style="font-size: 12px; color: var(--text-secondary);">社区动态</div>
+        </div>
       </div>
     </div>
   `;
 
   container.innerHTML = html;
 });
+
+// 获取天气图标（基于月份和温度的简单模拟）
+function getWeatherIcon() {
+  const month = new Date().getMonth();
+  if (month >= 5 && month <= 8) return '☀️';
+  if (month >= 9 && month <= 10) return '🍂';
+  if (month >= 11 || month <= 1) return '❄️';
+  return '🌸';
+}
+
+// 获取季节标签
+function getSeasonalBadge() {
+  const month = new Date().getMonth();
+  if (month >= 2 && month <= 4) return '<span class="seasonal-badge seasonal-spring">🌸 春</span>';
+  if (month >= 5 && month <= 7) return '<span class="seasonal-badge seasonal-summer">☀️ 夏</span>';
+  if (month >= 8 && month <= 10) return '<span class="seasonal-badge seasonal-autumn">🍂 秋</span>';
+  return '<span class="seasonal-badge seasonal-winter">❄️ 冬</span>';
+}
+
+// 获取温馨提示
+function getWarmTip(urgentMemos, pendingMemos, todayChores) {
+  const tips = [];
+  if (urgentMemos.length > 0) {
+    tips.push(`<strong>⚠️ ${urgentMemos.length} 条紧急待办</strong>需要处理`);
+  }
+  if (todayChores.length === 0) {
+    tips.push('今天还没有家务记录，<strong>主动做一点家务</strong>会让家人很开心');
+  } else {
+    tips.push(`今天已有 <strong>${todayChores.length} 条</strong>家务记录，真棒`);
+  }
+  if (pendingMemos.length > 5) {
+    tips.push(`还有 <strong>${pendingMemos.length} 条待办</strong>，记得及时完成`);
+  }
+  if (tips.length === 0) {
+    tips.push('一切井井有条，<strong>享受美好的一天</strong>吧');
+  }
+  return `<div class="warm-tip"><div class="warm-tip-icon">💡</div><div class="warm-tip-text">${tips.join(' · ')}</div></div>`;
+}

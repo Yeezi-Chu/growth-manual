@@ -5,9 +5,21 @@ App.registerPage('finance', function () {
   let currentMonth = container.dataset.month || App.utils.getMonthKey();
   container.dataset.month = currentMonth;
 
-  const allFinance = Storage.getAll(Storage.KEYS.finance);
-  const finances = allFinance.filter(f => f.month === currentMonth);
   const members = Storage.getMembers();
+  const searchText = container.dataset.finSearch || '';
+  const memberFilter = container.dataset.finMemberFilter || '';
+
+  const allFinance = Storage.getAll(Storage.KEYS.finance).filter(f => f.month === currentMonth);
+
+  // 按搜索和成员筛选
+  let finances = allFinance;
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    finances = finances.filter(f => (f.description || f.category || '').toLowerCase().includes(q));
+  }
+  if (memberFilter) {
+    finances = finances.filter(f => f.memberId === memberFilter);
+  }
 
   const totalIncome = finances.filter(f => f.type === 'income').reduce((s, f) => s + (parseFloat(f.amount) || 0), 0);
   const totalExpense = finances.filter(f => f.type === 'expense').reduce((s, f) => s + (parseFloat(f.amount) || 0), 0);
@@ -40,20 +52,43 @@ App.registerPage('finance', function () {
     </div>
 
     <div class="section-header">
-      <span class="section-title">各成员明细</span>
+      <span class="section-title">各成员明细 ${searchText || memberFilter ? '(' + finances.length + '/' + allFinance.length + ')' : ''}</span>
       <button class="btn btn-primary btn-sm" onclick="Finance.showAdd()">+ 添加记录</button>
     </div>
+
+    ${allFinance.length > 0 ? `
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索收支描述..." value="${searchText}" oninput="Finance.onSearch(this.value)">
+    </div>
+    ${members.length > 1 ? `
+    <div class="member-filter">
+      <span class="member-filter-chip ${!memberFilter ? 'active' : ''}" onclick="Finance.onMemberFilter('')">全部</span>
+      ${members.map(m => `<span class="member-filter-chip ${memberFilter === m.id ? 'active' : ''}" onclick="Finance.onMemberFilter('${m.id}')">${m.name}</span>`).join('')}
+    </div>
+    ` : ''}
+    ` : ''}
   `;
 
   if (finances.length === 0) {
     html += `
       <div class="empty-state">
-        <div class="empty-state-icon">💰</div>
-        <div class="empty-state-text">本月还没有收支记录</div>
-        <div class="empty-state-hint">点击"添加记录"开始填写</div>
+        <div class="empty-state-icon">${allFinance.length > 0 ? '🔍' : '💰'}</div>
+        <div class="empty-state-text">${allFinance.length > 0 ? '没有符合条件的记录' : '本月还没有收支记录'}</div>
+        <div class="empty-state-hint">${allFinance.length > 0 ? '试试调整搜索或筛选条件' : '点击"添加记录"开始填写'}</div>
       </div>
     `;
   } else {
+    // 收支对比柱状图
+    const memberChartData = members.filter(m => finances.some(f => f.memberId === m.id)).map(m => {
+      const memberFinances = finances.filter(f => f.memberId === m.id);
+      const income = memberFinances.filter(f => f.type === 'income').reduce((s, f) => s + (parseFloat(f.amount) || 0), 0);
+      const expense = memberFinances.filter(f => f.type === 'expense').reduce((s, f) => s + (parseFloat(f.amount) || 0), 0);
+      return { label: m.name, income, expense };
+    });
+
+    html += '<div class="chart-container"><div class="chart-title">📊 成员收支对比</div><div class="chart-canvas-wrap" id="financeBarChart"></div></div>';
+
     members.forEach(m => {
       const memberFinances = finances.filter(f => f.memberId === m.id);
       if (memberFinances.length === 0) return;
@@ -90,7 +125,10 @@ App.registerPage('finance', function () {
               <span class="${f.type === 'income' ? 'finance-entry-income' : 'finance-entry-expense'} font-bold">
                 ${f.type === 'income' ? '+' : '-'}${App.utils.formatMoney(f.amount)}
               </span>
-              <button class="btn btn-outline btn-sm" onclick="Finance.deleteEntry('${f.id}')">删除</button>
+              <div class="item-actions">
+                <button class="btn-icon-sm" onclick="Finance.showEdit('${f.id}')">编辑</button>
+                <button class="btn-icon-sm danger" onclick="Finance.deleteEntry('${f.id}')">删除</button>
+              </div>
             </div>
           </div>
         `;
@@ -101,6 +139,14 @@ App.registerPage('finance', function () {
   }
 
   container.innerHTML = html;
+
+  // 渲染柱状图
+  if (finances.length > 0 && typeof Chart !== 'undefined') {
+    setTimeout(() => {
+      const barData = memberChartData.map(d => ({ label: d.label, value: d.income - d.expense }));
+      Chart.bar('financeBarChart', barData, { formatMoney: true });
+    }, 50);
+  }
 });
 
 const Finance = (function () {
@@ -200,6 +246,91 @@ const Finance = (function () {
     document.getElementById('financeAmount').focus();
   }
 
+  function showEdit(id) {
+    const finances = Storage.getAll(Storage.KEYS.finance);
+    const f = finances.find(i => i.id === id);
+    if (!f) return;
+
+    const member = Storage.getMemberById(f.memberId) || { name: '未知' };
+
+    const body = `
+      <div class="form-group">
+        <label class="form-label">类型 <span class="required">*</span></label>
+        <div style="display: flex; gap: 12px;">
+          <label style="flex: 1; cursor: pointer; padding: 10px; border: 2px solid ${f.type === 'income' ? 'var(--primary)' : 'var(--border)'}; border-radius: 8px; text-align: center; background: ${f.type === 'income' ? 'var(--primary-light)' : 'transparent'};" id="editIncomeLabel">
+            <input type="radio" name="editFinanceType" value="income" style="display: none;" ${f.type === 'income' ? 'checked' : ''} onchange="Finance.updateEditCategoryOptions()">
+            <span style="font-size: 24px;">💰</span><br>收入
+          </label>
+          <label style="flex: 1; cursor: pointer; padding: 10px; border: 2px solid ${f.type === 'expense' ? 'var(--primary)' : 'var(--border)'}; border-radius: 8px; text-align: center; background: ${f.type === 'expense' ? 'var(--primary-light)' : 'transparent'};" id="editExpenseLabel">
+            <input type="radio" name="editFinanceType" value="expense" style="display: none;" ${f.type === 'expense' ? 'checked' : ''} onchange="Finance.updateEditCategoryOptions()">
+            <span style="font-size: 24px;">💸</span><br>支出
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">分类</label>
+        <select class="form-select" id="editFinanceCategory"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">金额 <span class="required">*</span></label>
+        <input type="number" class="form-input" id="editFinanceAmount" value="${f.amount}" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">描述</label>
+        <input type="text" class="form-input" id="editFinanceDescription" value="${App.utils.escapeHtml(f.description || '')}">
+      </div>
+    `;
+
+    App.showModal('编辑收支记录', body,
+      `<button class="btn btn-outline" onclick="App.closeModal()">取消</button>
+       <button class="btn btn-primary" onclick="Finance.saveEdit('${id}')">保存</button>`);
+
+    updateEditCategoryOptions(f.type, f.category);
+    document.getElementById('editFinanceAmount').focus();
+
+    document.querySelectorAll('input[name="editFinanceType"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        document.getElementById('editIncomeLabel').style.borderColor = 'var(--border)';
+        document.getElementById('editIncomeLabel').style.background = 'transparent';
+        document.getElementById('editExpenseLabel').style.borderColor = 'var(--border)';
+        document.getElementById('editExpenseLabel').style.background = 'transparent';
+        const selected = document.querySelector('input[name="editFinanceType"]:checked').value;
+        const label = document.getElementById(selected === 'income' ? 'editIncomeLabel' : 'editExpenseLabel');
+        label.style.borderColor = 'var(--primary)';
+        label.style.background = 'var(--primary-light)';
+        updateEditCategoryOptions(selected);
+      });
+    });
+  }
+
+  function updateEditCategoryOptions(type, selectedValue) {
+    if (!type) {
+      type = document.querySelector('input[name="editFinanceType"]:checked')?.value || 'income';
+    }
+    const cats = type === 'income' ? incomeCategories : expenseCategories;
+    const sel = document.getElementById('editFinanceCategory');
+    if (sel) {
+      sel.innerHTML = cats.map(c => `<option value="${c.value}" ${selectedValue === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
+    }
+  }
+
+  function saveEdit(id) {
+    const type = document.querySelector('input[name="editFinanceType"]:checked').value;
+    const category = document.getElementById('editFinanceCategory').value;
+    const amount = parseFloat(document.getElementById('editFinanceAmount').value);
+    const description = document.getElementById('editFinanceDescription').value.trim();
+
+    if (!amount || amount <= 0) {
+      App.toast('请输入有效金额', 'error');
+      return;
+    }
+
+    Storage.updateItem(Storage.KEYS.finance, id, { type, category, amount, description });
+    App.closeModal();
+    App.toast('记录已更新', 'success');
+    App.navigate('finance');
+  }
+
   function updateCategoryOptions() {
     const type = document.querySelector('input[name="financeType"]:checked').value;
     const cats = type === 'income' ? incomeCategories : expenseCategories;
@@ -239,5 +370,19 @@ const Finance = (function () {
     });
   }
 
-  return { changeMonth, goCurrentMonth, showAdd, updateCategoryOptions, save, deleteEntry };
+  let searchTimer = null;
+  function onSearch(value) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      document.getElementById('pageContainer').dataset.finSearch = value;
+      App.navigate('finance');
+    }, 250);
+  }
+
+  function onMemberFilter(memberId) {
+    document.getElementById('pageContainer').dataset.finMemberFilter = memberId;
+    App.navigate('finance');
+  }
+
+  return { changeMonth, goCurrentMonth, showAdd, showEdit, saveEdit, updateCategoryOptions, updateEditCategoryOptions, save, deleteEntry, onSearch, onMemberFilter };
 })();

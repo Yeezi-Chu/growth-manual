@@ -193,6 +193,127 @@ const Storage = (function () {
     }
   }
 
+  // ===== 多设备同步 =====
+  // 生成同步码（Base64 编码的压缩数据）
+  function generateSyncCode() {
+    const data = {};
+    Object.keys(KEYS).forEach(k => {
+      const val = get(KEYS[k]);
+      if (val !== null) data[k] = val;
+    });
+    data._syncTime = new Date().toISOString();
+    data._deviceId = getDeviceId();
+    try {
+      return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+    } catch (e) {
+      console.error('Sync code error:', e);
+      return '';
+    }
+  }
+
+  // 通过同步码导入数据
+  function importFromSyncCode(code) {
+    try {
+      const jsonStr = decodeURIComponent(escape(atob(code.trim())));
+      const data = JSON.parse(jsonStr);
+      Object.keys(KEYS).forEach(k => {
+        if (data[k] !== undefined) {
+          set(KEYS[k], data[k]);
+        }
+      });
+      // 记录同步来源设备
+      if (data._deviceId) {
+        const syncDevices = get(KEYS.settings) || {};
+        const devices = syncDevices._syncDevices || [];
+        if (!devices.find(d => d.id === data._deviceId)) {
+          devices.push({
+            id: data._deviceId,
+            name: data._deviceName || '未知设备',
+            lastSync: new Date().toISOString()
+          });
+        }
+        syncDevices._syncDevices = devices;
+        syncDevices._lastIncomingSync = new Date().toISOString();
+        set(KEYS.settings, syncDevices);
+      }
+      return true;
+    } catch (e) {
+      console.error('Sync import error:', e);
+      return false;
+    }
+  }
+
+  // 获取/生成设备ID
+  function getDeviceId() {
+    let id = localStorage.getItem(PREFIX + 'device_id');
+    if (!id) {
+      id = 'dev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
+      localStorage.setItem(PREFIX + 'device_id', id);
+    }
+    return id;
+  }
+
+  // 设置设备名称
+  function setDeviceName(name) {
+    localStorage.setItem(PREFIX + 'device_name', name);
+  }
+
+  function getDeviceName() {
+    return localStorage.getItem(PREFIX + 'device_name') || detectDeviceName();
+  }
+
+  function detectDeviceName() {
+    const ua = navigator.userAgent;
+    const platform = navigator.platform || '';
+    let device = '未知设备';
+    if (/iPhone/.test(ua)) device = 'iPhone';
+    else if (/iPad/.test(ua)) device = 'iPad';
+    else if (/Android/.test(ua)) device = '安卓设备';
+    else if (/Mac/.test(platform)) device = 'Mac';
+    else if (/Win/.test(platform)) device = 'Windows电脑';
+    else if (/Linux/.test(platform)) device = 'Linux设备';
+    return device;
+  }
+
+  // 获取已同步设备列表
+  function getSyncedDevices() {
+    const settings = get(KEYS.settings) || {};
+    return settings._syncDevices || [];
+  }
+
+  // 记录本设备同步信息
+  function recordSync() {
+    const settings = get(KEYS.settings) || {};
+    const myId = getDeviceId();
+    const devices = settings._syncDevices || [];
+    const idx = devices.findIndex(d => d.id === myId);
+    const entry = {
+      id: myId,
+      name: getDeviceName(),
+      lastSync: new Date().toISOString()
+    };
+    if (idx >= 0) devices[idx] = entry;
+    else devices.push(entry);
+    settings._syncDevices = devices;
+    set(KEYS.settings, settings);
+  }
+
+  // 通过URL参数同步
+  function generateSyncURL() {
+    const code = generateSyncCode();
+    const base = window.location.origin + window.location.pathname;
+    return base + '?sync=' + code;
+  }
+
+  function checkURLSync() {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('sync');
+    if (code) {
+      return code;
+    }
+    return null;
+  }
+
   function clearAll() {
     Object.keys(KEYS).forEach(k => remove(KEYS[k]));
   }
@@ -206,6 +327,10 @@ const Storage = (function () {
     getAll, saveAll, addItem, updateItem, deleteItem,
     getSettings, saveSettings,
     initDefaultData,
-    exportData, importData, clearAll
+    exportData, importData, clearAll,
+    generateSyncCode, importFromSyncCode,
+    getDeviceId, getDeviceName, setDeviceName,
+    getSyncedDevices, recordSync,
+    generateSyncURL, checkURLSync
   };
 })();

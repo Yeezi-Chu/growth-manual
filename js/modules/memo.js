@@ -1,7 +1,18 @@
 // ===== 家庭备忘录 =====
 App.registerPage('memo', function () {
   const container = document.getElementById('pageContainer');
-  const memos = Storage.getAll(Storage.KEYS.memos);
+  const allMemos = Storage.getAll(Storage.KEYS.memos);
+  const searchText = container.dataset.memoSearch || '';
+
+  // 按搜索筛选
+  let memos = allMemos;
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    memos = memos.filter(m =>
+      (m.title || '').toLowerCase().includes(q) ||
+      (m.content || '').toLowerCase().includes(q)
+    );
+  }
 
   const pending = memos.filter(m => !m.done);
   const done = memos.filter(m => m.done);
@@ -19,14 +30,21 @@ App.registerPage('memo', function () {
       <span class="section-title">待办 (${pending.length})</span>
       <button class="btn btn-primary btn-sm" onclick="Memo.showAdd()">+ 新建备忘</button>
     </div>
+
+    ${allMemos.length > 0 ? `
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索备忘标题或内容..." value="${searchText}" oninput="Memo.onSearch(this.value)">
+    </div>
+    ` : ''}
   `;
 
   if (pending.length === 0) {
     html += `
       <div class="empty-state">
-        <div class="empty-state-icon">📋</div>
-        <div class="empty-state-text">没有待办事项</div>
-        <div class="empty-state-hint">创建备忘录提醒自己或家人</div>
+        <div class="empty-state-icon">${allMemos.length > 0 ? '🔍' : '📋'}</div>
+        <div class="empty-state-text">${allMemos.length > 0 ? '没有符合条件的备忘' : '没有待办事项'}</div>
+        <div class="empty-state-hint">${allMemos.length > 0 ? '试试调整搜索条件' : '创建备忘录提醒自己或家人'}</div>
       </div>
     `;
   } else {
@@ -56,7 +74,10 @@ App.registerPage('memo', function () {
               </span>
             </div>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="Memo.deleteMemo('${m.id}')">删除</button>
+          <div class="item-actions">
+            <button class="btn-icon-sm" onclick="Memo.showEdit('${m.id}')">编辑</button>
+            <button class="btn-icon-sm danger" onclick="Memo.deleteMemo('${m.id}')">删除</button>
+          </div>
         </div>
       `;
     });
@@ -81,7 +102,9 @@ App.registerPage('memo', function () {
               <span>✅ ${App.utils.formatDate(m.completedAt || m.createdAt)}</span>
             </div>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="Memo.deleteMemo('${m.id}')">删除</button>
+          <div class="item-actions">
+            <button class="btn-icon-sm" onclick="Memo.deleteMemo('${m.id}')">删除</button>
+          </div>
         </div>
       `;
     });
@@ -189,5 +212,82 @@ const Memo = (function () {
     });
   }
 
-  return { showAdd, save, toggleDone, deleteMemo };
+  let searchTimer = null;
+  function onSearch(value) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      document.getElementById('pageContainer').dataset.memoSearch = value;
+      App.navigate('memo');
+    }, 250);
+  }
+
+  function showEdit(id) {
+    const memos = Storage.getAll(Storage.KEYS.memos);
+    const m = memos.find(i => i.id === id);
+    if (!m) return;
+
+    const members = Storage.getMembers();
+
+    const body = `
+      <div class="form-group">
+        <label class="form-label">标题 <span class="required">*</span></label>
+        <input type="text" class="form-input" id="memoTitle" value="${App.utils.escapeHtml(m.title)}" placeholder="例如：缴纳房贷、接种疫苗" maxlength="50">
+      </div>
+      <div class="form-group">
+        <label class="form-label">详细内容</label>
+        <textarea class="form-textarea" id="memoContent" placeholder="补充说明..." maxlength="500">${App.utils.escapeHtml(m.content || '')}</textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">优先级</label>
+          <select class="form-select" id="memoPriority">
+            <option value="normal" ${m.priority === 'normal' ? 'selected' : ''}>📌 普通</option>
+            <option value="urgent" ${m.priority === 'urgent' ? 'selected' : ''}>🔴 紧急</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">截止日期</label>
+          <input type="date" class="form-input" id="memoDueDate" value="${m.dueDate || ''}">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">提醒对象</label>
+        <select class="form-select" id="memoToMember">
+          <option value="">仅自己可见</option>
+          ${members.filter(mem => mem.id !== m.memberId).map(mem => `<option value="${mem.id}" ${m.toMember === mem.id ? 'selected' : ''}>提醒 ${mem.name}</option>`).join('')}
+        </select>
+      </div>
+    `;
+
+    App.showModal('编辑备忘', body,
+      `<button class="btn btn-outline" onclick="App.closeModal()">取消</button>
+       <button class="btn btn-primary" onclick="Memo.saveEdit('${id}')">保存</button>`);
+
+    document.getElementById('memoTitle').focus();
+  }
+
+  function saveEdit(id) {
+    const title = document.getElementById('memoTitle').value.trim();
+    const content = document.getElementById('memoContent').value.trim();
+    const priority = document.getElementById('memoPriority').value;
+    const dueDate = document.getElementById('memoDueDate').value;
+    const toMember = document.getElementById('memoToMember').value;
+
+    if (!title) {
+      App.toast('请输入标题', 'error');
+      return;
+    }
+
+    Storage.updateItem(Storage.KEYS.memos, id, {
+      title, content, priority,
+      dueDate: dueDate || null,
+      toMember: toMember || null
+    });
+
+    App.closeModal();
+    App.toast('备忘已更新', 'success');
+    App.navigate('memo');
+  }
+
+  return { showAdd, save, showEdit, saveEdit, toggleDone, deleteMemo, onSearch };
 })();

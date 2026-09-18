@@ -2,11 +2,27 @@
 App.registerPage('chores', function () {
   const container = document.getElementById('pageContainer');
   const members = Storage.getMembers();
+  const searchText = container.dataset.choreSearch || '';
+  const memberFilter = container.dataset.choreMemberFilter || '';
+
   const allChores = Storage.getAll(Storage.KEYS.chores);
+
+  // 按搜索和成员筛选
+  let filteredChores = allChores;
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    filteredChores = filteredChores.filter(c =>
+      (c.choreType || '').toLowerCase().includes(q) ||
+      (c.note || '').toLowerCase().includes(q)
+    );
+  }
+  if (memberFilter) {
+    filteredChores = filteredChores.filter(c => c.memberId === memberFilter);
+  }
 
   // 今日家务
   const today = new Date().toDateString();
-  const todayChores = allChores.filter(c => new Date(c.date).toDateString() === today);
+  const todayChores = filteredChores.filter(c => new Date(c.date).toDateString() === today);
 
   // 本月家务统计
   const monthKey = App.utils.getMonthKey();
@@ -94,14 +110,27 @@ App.registerPage('chores', function () {
       <span class="section-title">今日家务 (${todayChores.length})</span>
       <button class="btn btn-primary btn-sm" onclick="Chores.showAdd()">+ 记录家务</button>
     </div>
+
+    ${allChores.length > 0 ? `
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索家务类型或备注..." value="${searchText}" oninput="Chores.onSearch(this.value)">
+    </div>
+    ${members.length > 1 ? `
+    <div class="member-filter">
+      <span class="member-filter-chip ${!memberFilter ? 'active' : ''}" onclick="Chores.onMemberFilter('')">全部</span>
+      ${members.map(m => `<span class="member-filter-chip ${memberFilter === m.id ? 'active' : ''}" onclick="Chores.onMemberFilter('${m.id}')">${m.name}</span>`).join('')}
+    </div>
+    ` : ''}
+    ` : ''}
   `;
 
   if (todayChores.length === 0) {
     html += `
       <div class="empty-state">
-        <div class="empty-state-icon">🧹</div>
-        <div class="empty-state-text">今天还没有家务记录</div>
-        <div class="empty-state-hint">点击"记录家务"开始记录</div>
+        <div class="empty-state-icon">${allChores.length > 0 ? '🔍' : '🧹'}</div>
+        <div class="empty-state-text">${allChores.length > 0 ? '没有符合条件的家务记录' : '今天还没有家务记录'}</div>
+        <div class="empty-state-hint">${allChores.length > 0 ? '试试调整搜索或筛选条件' : '点击"记录家务"开始记录'}</div>
       </div>
     `;
   } else {
@@ -113,7 +142,10 @@ App.registerPage('chores', function () {
           <div class="chore-card-member">${Storage.getMemberName(c.memberId)}</div>
           <div class="chore-card-time">${App.utils.formatTime(c.date)}</div>
           ${c.note ? `<div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">${App.utils.escapeHtml(c.note)}</div>` : ''}
-          <button class="btn btn-outline btn-sm mt-12" onclick="Chores.deleteChore('${c.id}')">删除</button>
+          <div class="item-actions">
+            <button class="btn-icon-sm" onclick="Chores.showEdit('${c.id}')">编辑</button>
+            <button class="btn-icon-sm danger" onclick="Chores.deleteChore('${c.id}')">删除</button>
+          </div>
         </div>
       `;
     });
@@ -121,7 +153,7 @@ App.registerPage('chores', function () {
   }
 
   // 近期记录
-  const recentChores = allChores.slice(0, 10).filter(c => !todayChores.includes(c));
+  const recentChores = filteredChores.slice(0, 10).filter(c => !todayChores.includes(c));
   if (recentChores.length > 0) {
     html += `
       <div class="section-header mt-16">
@@ -139,7 +171,10 @@ App.registerPage('chores', function () {
             <div class="bill-category">${c.choreType}</div>
             <div class="bill-desc">${Storage.getMemberName(c.memberId)} · ${App.utils.formatDate(c.date)}</div>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="Chores.deleteChore('${c.id}')">删除</button>
+          <div class="item-actions">
+            <button class="btn-icon-sm" onclick="Chores.showEdit('${c.id}')">编辑</button>
+            <button class="btn-icon-sm danger" onclick="Chores.deleteChore('${c.id}')">删除</button>
+          </div>
         </div>
       `;
     });
@@ -208,6 +243,53 @@ const Chores = (function () {
       App.toast('已删除', 'success');
       App.navigate('chores');
     });
+  }
+
+  let searchTimer = null;
+  function onSearch(value) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      document.getElementById('pageContainer').dataset.choreSearch = value;
+      App.navigate('chores');
+    }, 250);
+  }
+
+  function onMemberFilter(memberId) {
+    document.getElementById('pageContainer').dataset.choreMemberFilter = memberId;
+    App.navigate('chores');
+  }
+
+  function showEdit(id) {
+    const chores = Storage.getAll(Storage.KEYS.chores);
+    const c = chores.find(i => i.id === id);
+    if (!c) return;
+
+    const body = `
+      <div class="form-group">
+        <label class="form-label">家务类型 <span class="required">*</span></label>
+        <select class="form-select" id="choreType">
+          ${choreTypes.map(t => `<option value="${t}" ${c.choreType === t ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <input type="text" class="form-input" id="choreNote" value="${App.utils.escapeHtml(c.note || '')}">
+      </div>
+    `;
+
+    App.showModal('编辑家务', body,
+      `<button class="btn btn-outline" onclick="App.closeModal()">取消</button>
+       <button class="btn btn-primary" onclick="Chores.saveEdit('${id}')">保存</button>`);
+  }
+
+  function saveEdit(id) {
+    const choreType = document.getElementById('choreType').value;
+    const note = document.getElementById('choreNote').value.trim();
+
+    Storage.updateItem(Storage.KEYS.chores, id, { choreType, note });
+    App.closeModal();
+    App.toast('家务已更新', 'success');
+    App.navigate('chores');
   }
 
   // 根据历史贡献智能分配家务
@@ -289,5 +371,5 @@ const Chores = (function () {
     }
   }
 
-  return { showAdd, save, deleteChore, generateSuggestion, generateSuggestionHTML, refreshSuggestion };
+  return { showAdd, save, showEdit, saveEdit, deleteChore, onSearch, onMemberFilter, generateSuggestion, generateSuggestionHTML, refreshSuggestion };
 })();

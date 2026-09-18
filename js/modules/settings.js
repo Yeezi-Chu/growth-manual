@@ -78,6 +78,55 @@ App.registerPage('settings', function () {
 
     <div class="settings-section">
       <div class="section-header">
+        <span class="section-title">多设备同步</span>
+      </div>
+      <div class="sync-panel">
+        <p class="text-secondary font-sm mb-12">在手机、平板、电脑之间同步家庭数据，让全家人共享同一份记录</p>
+
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <div class="sync-status sync-status-online">
+            <span>●</span> 本设备在线
+          </div>
+          <span style="font-size: 13px; color: var(--text-secondary);">${Storage.getDeviceName()}</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">设备名称</label>
+          <div class="flex gap-8">
+            <input type="text" class="form-input" id="deviceNameInput" value="${Storage.getDeviceName()}" placeholder="给这台设备起个名字">
+            <button class="btn btn-outline btn-sm" onclick="Settings.saveDeviceName()">保存</button>
+          </div>
+        </div>
+
+        <div class="sync-actions">
+          <button class="btn btn-primary" onclick="Settings.showSyncOut()">📤 生成同步码</button>
+          <button class="btn btn-outline" onclick="Settings.showSyncIn()">📥 输入同步码</button>
+          <button class="btn btn-outline" onclick="Settings.copySyncURL()">🔗 复制同步链接</button>
+        </div>
+
+        ${(() => {
+          const devices = Storage.getSyncedDevices();
+          if (devices.length === 0) return '';
+          return `
+            <div style="margin-top: 20px;">
+              <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">已同步设备 (${devices.length})</div>
+              <div class="sync-device-list">
+                ${devices.map(d => `
+                  <div class="sync-device-item">
+                    <span class="sync-device-icon">${getDeviceIcon(d.name)}</span>
+                    <span class="sync-device-name">${d.name}</span>
+                    <span class="sync-device-time">${App.utils.formatDate(d.lastSync)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        })()}
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-header">
         <span class="section-title">数据管理</span>
       </div>
       <div class="card">
@@ -92,8 +141,9 @@ App.registerPage('settings', function () {
     </div>
 
     <div class="card text-center">
-      <div style="font-size: 14px; color: var(--text-secondary);">成长手册 v1.0.0</div>
+      <div style="font-size: 14px; color: var(--text-secondary);">成长手册 v1.2.0</div>
       <div style="font-size: 12px; color: var(--text-light); margin-top: 4px;">记录家庭每一个美好瞬间 🌱</div>
+      <div style="font-size: 11px; color: var(--text-light); margin-top: 8px;">设备: ${Storage.getDeviceName()}</div>
     </div>
   `;
 
@@ -272,5 +322,118 @@ const Settings = (function () {
     });
   }
 
-  return { showAddMember, showEditMember, saveMember, deleteMember, saveAppSettings, exportData, importData, clearData };
+  function saveDeviceName() {
+    const name = document.getElementById('deviceNameInput').value.trim();
+    if (!name) {
+      App.toast('请输入设备名称', 'error');
+      return;
+    }
+    Storage.setDeviceName(name);
+    App.toast('设备名称已保存', 'success');
+    App.navigate('settings');
+  }
+
+  function showSyncOut() {
+    const code = Storage.generateSyncCode();
+    Storage.recordSync();
+
+    const body = `
+      <p class="text-secondary font-sm mb-12">将以下同步码分享给其他设备，在另一台设备的「设置 → 多设备同步 → 输入同步码」中粘贴即可</p>
+      <div class="sync-code-display" onclick="Settings.copySyncCode('${code}')" title="点击复制">
+        ${code.substring(0, 32)}...
+      </div>
+      <p style="font-size: 12px; color: var(--text-light); text-align: center;">点击同步码可复制完整内容</p>
+      <div class="flex gap-8 mt-12" style="justify-content: center;">
+        <button class="btn btn-primary btn-sm" onclick="Settings.copySyncCode('${code}')">📋 复制同步码</button>
+      </div>
+    `;
+
+    App.showModal('📤 生成同步码', body,
+      `<button class="btn btn-outline" onclick="App.closeModal()">关闭</button>`);
+  }
+
+  function showSyncIn() {
+    const body = `
+      <p class="text-secondary font-sm mb-12">粘贴从其他设备获取的同步码，即可导入数据到本设备</p>
+      <div class="form-group">
+        <label class="form-label">同步码</label>
+        <textarea class="form-textarea" id="syncCodeInput" placeholder="在此粘贴同步码..." rows="4" style="font-family: 'Courier New', monospace; font-size: 12px;"></textarea>
+      </div>
+      <div class="warm-tip" style="margin-top: 12px;">
+        <div class="warm-tip-icon">⚠️</div>
+        <div class="warm-tip-text">导入将<strong>覆盖</strong>本设备当前数据，请确认后再操作</div>
+      </div>
+    `;
+
+    App.showModal('📥 输入同步码', body,
+      `<button class="btn btn-outline" onclick="App.closeModal()">取消</button>
+       <button class="btn btn-primary" onclick="Settings.doSyncIn()">同步</button>`);
+  }
+
+  function doSyncIn() {
+    const code = document.getElementById('syncCodeInput').value.trim();
+    if (!code) {
+      App.toast('请输入同步码', 'error');
+      return;
+    }
+
+    App.confirmDialog('导入数据将覆盖本设备当前数据，确定继续吗？', () => {
+      if (Storage.importFromSyncCode(code)) {
+        Storage.recordSync();
+        App.closeModal();
+        App.toast('同步成功！数据已更新', 'success');
+        App.updateCurrentUserDisplay();
+        setTimeout(() => App.navigate('dashboard'), 500);
+      } else {
+        App.toast('同步码无效，请检查后重试', 'error');
+      }
+    });
+  }
+
+  function copySyncCode(code) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(code).then(() => {
+        App.toast('同步码已复制', 'success');
+      }).catch(() => fallbackCopy(code));
+    } else {
+      fallbackCopy(code);
+    }
+  }
+
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      App.toast('同步码已复制', 'success');
+    } catch (e) {
+      App.toast('复制失败，请手动选择复制', 'error');
+    }
+    document.body.removeChild(ta);
+  }
+
+  function copySyncURL() {
+    const url = Storage.generateSyncURL();
+    Storage.recordSync();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        App.toast('同步链接已复制，分享给家人打开即可同步', 'success');
+      }).catch(() => fallbackCopy(url));
+    } else {
+      fallbackCopy(url);
+    }
+  }
+
+  return { showAddMember, showEditMember, saveMember, deleteMember, saveAppSettings, exportData, importData, clearData, saveDeviceName, showSyncOut, showSyncIn, doSyncIn, copySyncCode, copySyncURL };
 })();
+
+function getDeviceIcon(name) {
+  if (/iPhone|安卓|手机/i.test(name)) return '📱';
+  if (/iPad|平板/i.test(name)) return '📋';
+  if (/Mac|Windows|电脑|Linux/i.test(name)) return '💻';
+  return '🖥️';
+}

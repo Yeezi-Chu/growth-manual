@@ -1,7 +1,25 @@
 // ===== 家庭外交事项 =====
 App.registerPage('diplomacy', function () {
   const container = document.getElementById('pageContainer');
-  const items = Storage.getAll(Storage.KEYS.diplomacy);
+  const members = Storage.getMembers();
+  const searchText = container.dataset.dipSearch || '';
+  const memberFilter = container.dataset.dipMemberFilter || '';
+
+  const allItems = Storage.getAll(Storage.KEYS.diplomacy);
+
+  // 按搜索和成员筛选
+  let items = allItems;
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    items = items.filter(i =>
+      (i.eventTitle || '').toLowerCase().includes(q) ||
+      (i.counterparty || '').toLowerCase().includes(q) ||
+      (i.note || '').toLowerCase().includes(q)
+    );
+  }
+  if (memberFilter) {
+    items = items.filter(i => i.memberId === memberFilter);
+  }
 
   // 统计
   const totalGift = items.filter(i => i.type === 'gift' || i.direction === 'outgoing').reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
@@ -36,17 +54,30 @@ App.registerPage('diplomacy', function () {
     </div>
 
     <div class="section-header">
-      <span class="section-title">往来记录</span>
+      <span class="section-title">往来记录 ${searchText || memberFilter ? '(' + items.length + '/' + allItems.length + ')' : ''}</span>
       <button class="btn btn-primary btn-sm" onclick="Diplomacy.showAdd()">+ 添加记录</button>
     </div>
+
+    ${allItems.length > 0 ? `
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索活动名称、对方、备注..." value="${searchText}" oninput="Diplomacy.onSearch(this.value)">
+    </div>
+    ${members.length > 1 ? `
+    <div class="member-filter">
+      <span class="member-filter-chip ${!memberFilter ? 'active' : ''}" onclick="Diplomacy.onMemberFilter('')">全部</span>
+      ${members.map(m => `<span class="member-filter-chip ${memberFilter === m.id ? 'active' : ''}" onclick="Diplomacy.onMemberFilter('${m.id}')">${m.name}</span>`).join('')}
+    </div>
+    ` : ''}
+    ` : ''}
   `;
 
   if (items.length === 0) {
     html += `
       <div class="empty-state">
-        <div class="empty-state-icon">🤝</div>
-        <div class="empty-state-text">还没有外交记录</div>
-        <div class="empty-state-hint">记录婚宴、聚餐、人情往来等</div>
+        <div class="empty-state-icon">${allItems.length > 0 ? '🔍' : '🤝'}</div>
+        <div class="empty-state-text">${allItems.length > 0 ? '没有符合条件的记录' : '还没有外交记录'}</div>
+        <div class="empty-state-hint">${allItems.length > 0 ? '试试调整搜索或筛选条件' : '记录婚宴、聚餐、人情往来等'}</div>
       </div>
     `;
   } else {
@@ -81,7 +112,10 @@ App.registerPage('diplomacy', function () {
             <div class="diplomacy-amount" style="color: ${isIncoming ? 'var(--success)' : 'var(--danger)'};">
               ${isIncoming ? '+' : '-'}${App.utils.formatMoney(item.amount)}
             </div>
-            <button class="btn btn-outline btn-sm" onclick="Diplomacy.deleteItem('${item.id}')">删除</button>
+            <div class="item-actions">
+              <button class="btn-icon-sm" onclick="Diplomacy.showEdit('${item.id}')">编辑</button>
+              <button class="btn-icon-sm danger" onclick="Diplomacy.deleteItem('${item.id}')">删除</button>
+            </div>
           </div>
         </div>
       `;
@@ -191,5 +225,85 @@ const Diplomacy = (function () {
     });
   }
 
-  return { showAdd, save, deleteItem };
+  let searchTimer = null;
+  function onSearch(value) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      document.getElementById('pageContainer').dataset.dipSearch = value;
+      App.navigate('diplomacy');
+    }, 250);
+  }
+
+  function onMemberFilter(memberId) {
+    document.getElementById('pageContainer').dataset.dipMemberFilter = memberId;
+    App.navigate('diplomacy');
+  }
+
+  function showEdit(id) {
+    const items = Storage.getAll(Storage.KEYS.diplomacy);
+    const d = items.find(i => i.id === id);
+    if (!d) return;
+
+    const body = `
+      <div class="form-group">
+        <label class="form-label">活动类型 <span class="required">*</span></label>
+        <select class="form-select" id="eventType">
+          ${eventTypes.map(t => `<option value="${t.value}" ${d.eventType === t.value ? 'selected' : ''}>${t.icon} ${t.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">活动名称</label>
+        <input type="text" class="form-input" id="eventTitle" value="${App.utils.escapeHtml(d.eventTitle || '')}">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">日期</label>
+          <input type="date" class="form-input" id="eventDate" value="${d.eventDate || ''}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">礼金方向</label>
+          <select class="form-select" id="direction">
+            <option value="outgoing" ${d.direction === 'outgoing' ? 'selected' : ''}>送出</option>
+            <option value="incoming" ${d.direction === 'incoming' ? 'selected' : ''}>收入</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">金额</label>
+        <input type="number" class="form-input" id="amount" value="${d.amount || 0}" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">对方</label>
+        <input type="text" class="form-input" id="counterparty" value="${App.utils.escapeHtml(d.counterparty || '')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <input type="text" class="form-input" id="note" value="${App.utils.escapeHtml(d.note || '')}">
+      </div>
+    `;
+
+    App.showModal('编辑外交记录', body,
+      `<button class="btn btn-outline" onclick="App.closeModal()">取消</button>
+       <button class="btn btn-primary" onclick="Diplomacy.saveEdit('${id}')">保存</button>`);
+  }
+
+  function saveEdit(id) {
+    const eventType = document.getElementById('eventType').value;
+    const eventTitle = document.getElementById('eventTitle').value.trim();
+    const eventDate = document.getElementById('eventDate').value;
+    const direction = document.getElementById('direction').value;
+    const amount = parseFloat(document.getElementById('amount').value) || 0;
+    const counterparty = document.getElementById('counterparty').value.trim();
+    const note = document.getElementById('note').value.trim();
+
+    Storage.updateItem(Storage.KEYS.diplomacy, id, {
+      eventType, eventTitle, eventDate, direction, amount, counterparty, note
+    });
+
+    App.closeModal();
+    App.toast('记录已更新', 'success');
+    App.navigate('diplomacy');
+  }
+
+  return { showAdd, showEdit, saveEdit, save, deleteItem, onSearch, onMemberFilter };
 })();

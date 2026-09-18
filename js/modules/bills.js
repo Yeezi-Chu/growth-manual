@@ -5,17 +5,9 @@ App.registerPage('bills', function () {
   let currentMonth = container.dataset.month || App.utils.getMonthKey();
   container.dataset.month = currentMonth;
 
-  const allBills = Storage.getAll(Storage.KEYS.bills);
-  const bills = allBills.filter(b => b.month === currentMonth);
-  const total = bills.reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
-
-  // 按分类统计
-  const categoryStats = {};
-  bills.forEach(b => {
-    if (!categoryStats[b.category]) categoryStats[b.category] = { total: 0, count: 0, icon: b.icon || '📦' };
-    categoryStats[b.category].total += parseFloat(b.amount) || 0;
-    categoryStats[b.category].count++;
-  });
+  const members = Storage.getMembers();
+  const searchText = container.dataset.billSearch || '';
+  const memberFilter = container.dataset.billMemberFilter || '';
 
   const categories = [
     { value: 'water', label: '水费', icon: '💧' },
@@ -30,6 +22,32 @@ App.registerPage('bills', function () {
     { value: 'communication', label: '通讯网络', icon: '📱' },
     { value: 'other', label: '其他', icon: '📦' }
   ];
+
+  const allBills = Storage.getAll(Storage.KEYS.bills).filter(b => b.month === currentMonth);
+
+  // 按搜索和成员筛选
+  let bills = allBills;
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    bills = bills.filter(b => {
+      const catInfo = categories.find(c => c.value === b.category);
+      const catLabel = catInfo ? catInfo.label : '';
+      return (b.description || '').toLowerCase().includes(q) || catLabel.toLowerCase().includes(q);
+    });
+  }
+  if (memberFilter) {
+    bills = bills.filter(b => b.memberId === memberFilter);
+  }
+
+  const total = bills.reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
+
+  // 按分类统计
+  const categoryStats = {};
+  bills.forEach(b => {
+    if (!categoryStats[b.category]) categoryStats[b.category] = { total: 0, count: 0, icon: b.icon || '📦' };
+    categoryStats[b.category].total += parseFloat(b.amount) || 0;
+    categoryStats[b.category].count++;
+  });
 
   let html = `
     <h1 class="page-title">🧾 家庭账单</h1>
@@ -67,17 +85,30 @@ App.registerPage('bills', function () {
     </div>
 
     <div class="section-header">
-      <span class="section-title">账单记录</span>
+      <span class="section-title">账单记录 ${searchText || memberFilter ? '(' + bills.length + '/' + allBills.length + ')' : ''}</span>
       <button class="btn btn-primary btn-sm" onclick="Bills.showAdd()">+ 添加账单</button>
     </div>
+
+    ${allBills.length > 0 ? `
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索账单描述或分类..." value="${searchText}" oninput="Bills.onSearch(this.value)">
+    </div>
+    ${members.length > 1 ? `
+    <div class="member-filter">
+      <span class="member-filter-chip ${!memberFilter ? 'active' : ''}" onclick="Bills.onMemberFilter('')">全部</span>
+      ${members.map(m => `<span class="member-filter-chip ${memberFilter === m.id ? 'active' : ''}" onclick="Bills.onMemberFilter('${m.id}')">${m.name}</span>`).join('')}
+    </div>
+    ` : ''}
+    ` : ''}
   `;
 
   if (bills.length === 0) {
     html += `
       <div class="empty-state">
-        <div class="empty-state-icon">🧾</div>
-        <div class="empty-state-text">本月还没有账单记录</div>
-        <div class="empty-state-hint">点击"添加账单"开始记录</div>
+        <div class="empty-state-icon">${allBills.length > 0 ? '🔍' : '🧾'}</div>
+        <div class="empty-state-text">${allBills.length > 0 ? '没有符合条件的账单' : '本月还没有账单记录'}</div>
+        <div class="empty-state-hint">${allBills.length > 0 ? '试试调整搜索或筛选条件' : '点击"添加账单"开始记录'}</div>
       </div>
     `;
   } else {
@@ -97,6 +128,9 @@ App.registerPage('bills', function () {
     });
     html += '</div></div>';
 
+    // 饼图
+    html += '<div class="chart-container"><div class="chart-title">📊 账单分布</div><div class="chart-canvas-wrap" id="billsPieChart"></div></div>';
+
     // 账单列表
     html += '<div class="card mt-16">';
     bills.forEach(b => {
@@ -110,7 +144,10 @@ App.registerPage('bills', function () {
           </div>
           <div style="text-align: right;">
             <div class="bill-amount">${App.utils.formatMoney(b.amount)}</div>
-            <button class="btn btn-outline btn-sm" onclick="Bills.deleteBill('${b.id}')">删除</button>
+            <div class="item-actions">
+              <button class="btn-icon-sm" onclick="Bills.showEdit('${b.id}')">编辑</button>
+              <button class="btn-icon-sm danger" onclick="Bills.deleteBill('${b.id}')">删除</button>
+            </div>
           </div>
         </div>
       `;
@@ -119,6 +156,17 @@ App.registerPage('bills', function () {
   }
 
   container.innerHTML = html;
+
+  // 渲染饼图
+  if (bills.length > 0 && typeof Chart !== 'undefined') {
+    setTimeout(() => {
+      const pieData = Object.entries(categoryStats).map(([cat, stat]) => {
+        const catInfo = categories.find(c => c.value === cat) || { label: cat };
+        return { label: catInfo.label, value: stat.total };
+      });
+      Chart.pie('billsPieChart', pieData, { formatMoney: true, centerLabel: App.utils.formatMoney(total) });
+    }, 50);
+  }
 });
 
 const Bills = (function () {
@@ -184,6 +232,55 @@ const Bills = (function () {
     document.getElementById('billAmount').focus();
   }
 
+  function showEdit(id) {
+    const bills = Storage.getAll(Storage.KEYS.bills);
+    const b = bills.find(i => i.id === id);
+    if (!b) return;
+
+    const body = `
+      <div class="form-group">
+        <label class="form-label">分类 <span class="required">*</span></label>
+        <select class="form-select" id="billCategory">
+          ${categories.map(c => `<option value="${c.value}" ${b.category === c.value ? 'selected' : ''}>${c.icon} ${c.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">金额 <span class="required">*</span></label>
+        <input type="number" class="form-input" id="billAmount" value="${b.amount}" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">描述</label>
+        <input type="text" class="form-input" id="billDescription" value="${App.utils.escapeHtml(b.description || '')}">
+      </div>
+    `;
+
+    App.showModal('编辑账单', body,
+      `<button class="btn btn-outline" onclick="App.closeModal()">取消</button>
+       <button class="btn btn-primary" onclick="Bills.saveEdit('${id}')">保存</button>`);
+
+    document.getElementById('billAmount').focus();
+  }
+
+  function saveEdit(id) {
+    const category = document.getElementById('billCategory').value;
+    const amount = parseFloat(document.getElementById('billAmount').value);
+    const description = document.getElementById('billDescription').value.trim();
+    const catInfo = categories.find(c => c.value === category);
+
+    if (!amount || amount <= 0) {
+      App.toast('请输入有效金额', 'error');
+      return;
+    }
+
+    Storage.updateItem(Storage.KEYS.bills, id, {
+      category, amount, description, icon: catInfo ? catInfo.icon : '📦'
+    });
+
+    App.closeModal();
+    App.toast('账单已更新', 'success');
+    App.navigate('bills');
+  }
+
   function save() {
     const member = App.utils.getCurrentMember();
     if (!member) { App.toast('请先选择当前成员', 'error'); return; }
@@ -220,5 +317,19 @@ const Bills = (function () {
     });
   }
 
-  return { changeMonth, goCurrentMonth, showAdd, save, deleteBill };
+  let searchTimer = null;
+  function onSearch(value) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      document.getElementById('pageContainer').dataset.billSearch = value;
+      App.navigate('bills');
+    }, 250);
+  }
+
+  function onMemberFilter(memberId) {
+    document.getElementById('pageContainer').dataset.billMemberFilter = memberId;
+    App.navigate('bills');
+  }
+
+  return { changeMonth, goCurrentMonth, showAdd, showEdit, saveEdit, save, deleteBill, onSearch, onMemberFilter };
 })();

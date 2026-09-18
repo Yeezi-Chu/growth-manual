@@ -140,6 +140,20 @@ const App = (function () {
   }
 
   function navigate(page) {
+    // 切换到不同页面时清理搜索/筛选状态
+    if (currentPage !== page) {
+      const c = document.getElementById('pageContainer');
+      delete c.dataset.billSearch;
+      delete c.dataset.billMemberFilter;
+      delete c.dataset.finSearch;
+      delete c.dataset.finMemberFilter;
+      delete c.dataset.dipSearch;
+      delete c.dataset.dipMemberFilter;
+      delete c.dataset.choreSearch;
+      delete c.dataset.choreMemberFilter;
+      delete c.dataset.memoSearch;
+      delete c.dataset.communitySearch;
+    }
     currentPage = page;
     // 更新导航高亮
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -201,13 +215,35 @@ const App = (function () {
     }
   }
 
+  // 主题切换
+  function initTheme() {
+    const saved = localStorage.getItem('growth_manual_theme') || 'light';
+    document.documentElement.dataset.theme = saved;
+    updateThemeToggle(saved);
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.dataset.theme || 'light';
+    const next = current === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('growth_manual_theme', next);
+    updateThemeToggle(next);
+    // 重新渲染当前页面以更新图表
+    if (pages[currentPage]) navigate(currentPage);
+  }
+
+  function updateThemeToggle(theme) {
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  }
+
   // 构建底部导航
   function buildBottomNav() {
     const navItems = [
       { page: 'dashboard', icon: '🏠', label: '首页' },
       { page: 'album', icon: '📸', label: '相册' },
       { page: 'bills', icon: '🧾', label: '账单' },
-      { page: 'chores', icon: '🧹', label: '家务' },
+      { page: 'calendar', icon: '📅', label: '日历' },
       { page: 'community', icon: '💬', label: '社区' }
     ];
 
@@ -234,6 +270,7 @@ const App = (function () {
   // 初始化
   function init() {
     Storage.initDefaultData();
+    initTheme();
     updateCurrentUserDisplay();
     buildBottomNav();
 
@@ -274,6 +311,25 @@ const App = (function () {
       }
     });
 
+    // 主题切换
+    document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+
+    // 返回顶部
+    const backToTopBtn = document.getElementById('backToTop');
+    backToTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 300) {
+        backToTopBtn.classList.add('visible');
+      } else {
+        backToTopBtn.classList.remove('visible');
+      }
+    });
+
+    // Service Worker 注册
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+
     // 路由
     const hash = window.location.hash.slice(1);
     navigate(hash && pages[hash] ? hash : 'dashboard');
@@ -292,10 +348,32 @@ const App = (function () {
     registerPage, navigate,
     openSidebar, closeSidebar,
     updateCurrentUserDisplay,
+    toggleTheme,
     init,
     get currentPage() { return currentPage; }
   };
 })();
 
 // 启动
-document.addEventListener('DOMContentLoaded', () => App.init());
+document.addEventListener('DOMContentLoaded', () => {
+  App.init();
+
+  // 检测URL同步参数
+  const syncCode = Storage.checkURLSync();
+  if (syncCode) {
+    setTimeout(() => {
+      App.confirmDialog('检测到来自其他设备的同步数据，是否导入？这将覆盖当前数据。', () => {
+        if (Storage.importFromSyncCode(syncCode)) {
+          Storage.recordSync();
+          // 清除URL中的同步参数
+          window.history.replaceState({}, document.title, window.location.pathname);
+          App.toast('同步成功！数据已更新', 'success');
+          App.updateCurrentUserDisplay();
+          App.navigate('dashboard');
+        } else {
+          App.toast('同步数据无效', 'error');
+        }
+      });
+    }, 800);
+  }
+});

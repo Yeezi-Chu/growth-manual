@@ -1,7 +1,18 @@
 // ===== 情绪社区 =====
 App.registerPage('community', function () {
   const container = document.getElementById('pageContainer');
-  const posts = Storage.getAll(Storage.KEYS.community);
+  const allPosts = Storage.getAll(Storage.KEYS.community);
+  const searchText = container.dataset.communitySearch || '';
+
+  // 按搜索筛选
+  let posts = allPosts;
+  if (searchText) {
+    const q = searchText.toLowerCase();
+    posts = posts.filter(p => {
+      const authorName = Storage.getMemberName(p.memberId) || '';
+      return (p.content || '').toLowerCase().includes(q) || authorName.toLowerCase().includes(q);
+    });
+  }
 
   const moods = {
     happy: { label: '开心', emoji: '😊', color: '#FFF4E0' },
@@ -22,14 +33,21 @@ App.registerPage('community', function () {
       <span class="section-title">家庭动态 (${posts.length})</span>
       <button class="btn btn-primary btn-sm" onclick="Community.showAdd()">+ 发布动态</button>
     </div>
+
+    ${allPosts.length > 0 ? `
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索动态内容或作者..." value="${searchText}" oninput="Community.onSearch(this.value)">
+    </div>
+    ` : ''}
   `;
 
   if (posts.length === 0) {
     html += `
       <div class="empty-state">
-        <div class="empty-state-icon">💬</div>
-        <div class="empty-state-text">还没有人发布动态</div>
-        <div class="empty-state-hint">分享你的心情，或者对家人说点什么吧</div>
+        <div class="empty-state-icon">${allPosts.length > 0 ? '🔍' : '💬'}</div>
+        <div class="empty-state-text">${allPosts.length > 0 ? '没有符合条件的动态' : '还没有人发布动态'}</div>
+        <div class="empty-state-hint">${allPosts.length > 0 ? '试试调整搜索条件' : '分享你的心情，或者对家人说点什么吧'}</div>
       </div>
     `;
   } else {
@@ -249,5 +267,14 @@ const Community = (function () {
     });
   }
 
-  return { showAdd, save, toggleLike, toggleComment, addComment, onCommentKeypress, deletePost };
+  let searchTimer = null;
+  function onSearch(value) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      document.getElementById('pageContainer').dataset.communitySearch = value;
+      App.navigate('community');
+    }, 250);
+  }
+
+  return { showAdd, save, toggleLike, toggleComment, addComment, onCommentKeypress, deletePost, onSearch };
 })();
