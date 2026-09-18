@@ -1695,3 +1695,89 @@ canvas {
   font-size: 13px;
   color: var(--text-light);
 }
+
+/* ===== Firebase 实时同步指示器 ===== */
+.sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--bg-page);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: default;
+  transition: var(--transition);
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.sync-dot-online {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: syncPulse 2s ease infinite;
+}
+
+.sync-dot-connecting {
+  background: var(--secondary);
+  box-shadow: 0 0 6px var(--secondary);
+  animation: syncPulse 1s ease infinite;
+}
+
+.sync-dot-off {
+  background: var(--text-light);
+}
+
+@keyframes syncPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.sync-text {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 同步状态标签 */
+.sync-status-offline {
+  background: var(--danger-light);
+  color: var(--danger);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 移动端同步指示器 */
+@media (max-width: 768px) {
+  .sync-indicator {
+    position: fixed;
+    top: 8px;
+    right: 50px;
+    z-index: 100;
+    background: rgba(255,255,255,0.2);
+    backdrop-filter: blur(8px);
+    border-radius: 20px;
+    padding: 2px 8px;
+    color: #fff;
+  }
+
+  .sync-dot-off { background: rgba(255,255,255,0.6); }
+  .sync-text { font-size: 10px; }
+}
+
+/* 暗色模式适配 */
+[data-theme="dark"] .sync-indicator {
+  background: rgba(255,255,255,0.05);
+}
+
+[data-theme="dark"] .sync-status-offline {
+  background: var(--danger-light);
+}

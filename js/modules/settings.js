@@ -78,6 +78,51 @@ App.registerPage('settings', function () {
 
     <div class="settings-section">
       <div class="section-header">
+        <span class="section-title">🔥 实时同步 (Beta)</span>
+      </div>
+      <div class="card">
+        <p class="text-secondary font-sm mb-12">通过 Firebase 云数据库实现多设备实时同步，一台设备发布动态，其他设备即时更新</p>
+
+        <div class="sync-guide" style="background: var(--bg-page); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 16px;">
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">📋 开启步骤</div>
+          <ol style="font-size: 13px; color: var(--text-secondary); line-height: 2; margin-left: 16px;">
+            <li>打开 <a href="https://console.firebase.google.com/" target="_blank" style="color: var(--primary);">Firebase 控制台</a>，创建免费项目</li>
+            <li>添加 Web 应用（点击 &lt;/&gt; 图标），复制配置信息</li>
+            <li>左侧菜单进入「Realtime Database」→ 创建数据库（测试模式）</li>
+            <li>将下方的 apiKey 和 databaseURL 填入设置中</li>
+            <li>点击「测试连接」，成功后开启同步</li>
+            <li>其他设备填入相同配置即可自动同步</li>
+          </ol>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <input type="text" class="form-input" id="fbApiKey" value="${FirebaseSync.getConfig()?.apiKey || ''}" placeholder="AIza..." style="font-family: 'Courier New', monospace;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Database URL</label>
+          <input type="text" class="form-input" id="fbDbUrl" value="${FirebaseSync.getConfig()?.databaseURL || ''}" placeholder="https://xxx-default-rtdb.firebaseio.com" style="font-family: 'Courier New', monospace;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">家庭同步码（同一家人填相同值）</label>
+          <input type="text" class="form-input" id="fbFamilyKey" value="${FirebaseSync.getFamilyKey()}" placeholder="my_family">
+        </div>
+
+        <div class="flex gap-8 mb-12" style="flex-wrap: wrap;">
+          <button class="btn btn-outline" onclick="Settings.testFirebase()">🔗 测试连接</button>
+          <button class="btn btn-primary" onclick="Settings.toggleFirebase()">${FirebaseSync.isEnabled() ? '关闭实时同步' : '开启实时同步'}</button>
+        </div>
+
+        <div id="fbStatusArea" style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); margin-top: 8px; ${FirebaseSync.isEnabled() ? '' : 'display: none;'}">
+          <div class="sync-status ${FirebaseSync.isConnected() ? 'sync-status-online' : 'sync-status-offline'}">
+            <span>●</span> ${FirebaseSync.isConnected() ? '已连接' : '连接中...'}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-header">
         <span class="section-title">多设备同步</span>
       </div>
       <div class="sync-panel">
@@ -428,7 +473,83 @@ const Settings = (function () {
     }
   }
 
-  return { showAddMember, showEditMember, saveMember, deleteMember, saveAppSettings, exportData, importData, clearData, saveDeviceName, showSyncOut, showSyncIn, doSyncIn, copySyncCode, copySyncURL };
+  function testFirebase() {
+    const apiKey = document.getElementById('fbApiKey').value.trim();
+    const dbUrl = document.getElementById('fbDbUrl').value.trim();
+    const fKey = document.getElementById('fbFamilyKey').value.trim() || 'default';
+
+    if (!apiKey || !dbUrl) {
+      App.toast('请填写 API Key 和 Database URL', 'error');
+      return;
+    }
+
+    if (typeof firebase === 'undefined') {
+      App.toast('Firebase SDK 加载失败，请检查网络', 'error');
+      return;
+    }
+
+    App.toast('正在测试连接...', 'default');
+
+    try {
+      const testApp = firebase.initializeApp({ apiKey, databaseURL: dbUrl }, 'growth-manual-test');
+      const testDb = firebase.database(testApp);
+
+      testDb.ref('.info/connected').on('value', snap => {
+        if (snap.val() === true) {
+          testDb.ref(`${fKey}/_test`).set({ time: Date.now() }).then(() => {
+            testDb.ref(`${fKey}/_test`).remove();
+            App.toast('连接成功！可以开启实时同步了', 'success');
+            FirebaseSync.saveConfig({ apiKey, databaseURL: dbUrl });
+            FirebaseSync.saveFamilyKey(fKey);
+            firebase.app('growth-manual-test').delete().catch(() => {});
+          }).catch(err => {
+            App.toast('数据库写入失败，请检查规则设置', 'error');
+            firebase.app('growth-manual-test').delete().catch(() => {});
+          });
+        }
+      });
+
+      setTimeout(() => {
+        if (App.currentPage === 'settings') {
+          firebase.app('growth-manual-test').delete().catch(() => {});
+        }
+      }, 5000);
+    } catch (e) {
+      App.toast('连接失败：' + e.message, 'error');
+    }
+  }
+
+  function toggleFirebase() {
+    if (FirebaseSync.isEnabled()) {
+      FirebaseSync.setEnabled(false);
+      FirebaseSync.disconnect();
+      App.toast('实时同步已关闭', 'success');
+      App.navigate('settings');
+    } else {
+      const apiKey = document.getElementById('fbApiKey').value.trim();
+      const dbUrl = document.getElementById('fbDbUrl').value.trim();
+      const fKey = document.getElementById('fbFamilyKey').value.trim() || 'default';
+
+      if (!apiKey || !dbUrl) {
+        App.toast('请先填写 API Key 和 Database URL', 'error');
+        return;
+      }
+
+      FirebaseSync.saveConfig({ apiKey, databaseURL: dbUrl });
+      FirebaseSync.saveFamilyKey(fKey);
+      FirebaseSync.setEnabled(true);
+
+      if (FirebaseSync.init({ apiKey, databaseURL: dbUrl }, fKey)) {
+        App.toast('实时同步已开启！', 'success');
+        App.navigate('settings');
+      } else {
+        FirebaseSync.setEnabled(false);
+        App.toast('启动失败，请检查配置或网络', 'error');
+      }
+    }
+  }
+
+  return { showAddMember, showEditMember, saveMember, deleteMember, saveAppSettings, exportData, importData, clearData, saveDeviceName, showSyncOut, showSyncIn, doSyncIn, copySyncCode, copySyncURL, testFirebase, toggleFirebase };
 })();
 
 function getDeviceIcon(name) {

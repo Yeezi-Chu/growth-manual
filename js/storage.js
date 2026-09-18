@@ -1,6 +1,13 @@
 // ===== 成长手册 - 数据存储层 =====
 const Storage = (function () {
   const PREFIX = 'growth_manual_';
+
+  let _syncHook = null;
+
+  function setSyncHook(fn) {
+    _syncHook = fn;
+  }
+
   const KEYS = {
     members: PREFIX + 'members',
     currentMember: PREFIX + 'current_member',
@@ -27,6 +34,7 @@ const Storage = (function () {
   function set(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      if (_syncHook) _syncHook(key, value);
       return true;
     } catch (e) {
       console.error('Storage set error:', e);
@@ -321,6 +329,7 @@ const Storage = (function () {
   return {
     KEYS,
     get, set, remove,
+    setSyncHook,
     getMembers, saveMembers, addMember, updateMember, deleteMember,
     getMemberById, getMemberName, getMemberAvatar, getMemberColor,
     getCurrentMember, setCurrentMember,

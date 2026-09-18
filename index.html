@@ -18,6 +18,10 @@
       <div class="sidebar-header">
         <div class="app-logo">🌱</div>
         <div class="app-title">成长手册</div>
+        <div class="sync-indicator" id="syncIndicator" title="同步状态">
+          <span class="sync-dot sync-dot-off" id="syncStatusDot"></span>
+          <span class="sync-text" id="syncStatusText">离线</span>
+        </div>
       </div>
       <nav class="nav-list" id="navList">
         <a href="#dashboard" class="nav-item active" data-page="dashboard">
@@ -108,8 +112,11 @@
   <!-- 返回顶部按钮 -->
   <button class="back-to-top" id="backToTop" aria-label="返回顶部">↑</button>
 
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/utils/chart.js"></script>
+  <script src="js/utils/firebase-sync.js"></script>
   <script src="js/app.js"></script>
   <script src="js/modules/dashboard.js"></script>
   <script src="js/modules/album.js"></script>

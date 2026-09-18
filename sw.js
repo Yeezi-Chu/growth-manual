@@ -1,5 +1,5 @@
 // ===== 成长手册 Service Worker =====
-const CACHE_NAME = 'growth-manual-v1.2.0';
+const CACHE_NAME = 'growth-manual-v1.3.0';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,8 @@ const ASSETS = [
   './css/styles.css',
   './js/app.js',
   './js/storage.js',
+  './js/utils/chart.js',
+  './js/utils/firebase-sync.js',
   './js/modules/dashboard.js',
   './js/modules/album.js',
   './js/modules/bills.js',
@@ -16,8 +18,7 @@ const ASSETS = [
   './js/modules/community.js',
   './js/modules/memo.js',
   './js/modules/settings.js',
-  './js/modules/calendar.js',
-  './js/utils/chart.js'
+  './js/modules/calendar.js'
 ];
 
 self.addEventListener('install', e => {

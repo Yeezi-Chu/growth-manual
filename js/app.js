@@ -237,6 +237,23 @@ const App = (function () {
     if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
   }
 
+  function updateSyncStatusIndicator(connected) {
+    const dot = document.getElementById('syncStatusDot');
+    const text = document.getElementById('syncStatusText');
+    if (!dot) return;
+
+    if (FirebaseSync.isEnabled() && connected) {
+      dot.className = 'sync-dot sync-dot-online';
+      text.textContent = '已同步';
+    } else if (FirebaseSync.isEnabled() && !connected) {
+      dot.className = 'sync-dot sync-dot-connecting';
+      text.textContent = '连接中';
+    } else {
+      dot.className = 'sync-dot sync-dot-off';
+      text.textContent = '离线';
+    }
+  }
+
   // 构建底部导航
   function buildBottomNav() {
     const navItems = [
@@ -273,6 +290,16 @@ const App = (function () {
     initTheme();
     updateCurrentUserDisplay();
     buildBottomNav();
+
+    // 初始化 Firebase 实时同步
+    Storage.setSyncHook(FirebaseSync.onLocalChange);
+    FirebaseSync.onStatusChange((connected) => {
+      updateSyncStatusIndicator(connected);
+      if (connected) {
+        App.toast('实时同步已连接', 'success');
+      }
+    });
+    FirebaseSync.autoInit();
 
     // 导航点击
     document.querySelectorAll('.sidebar .nav-item').forEach(item => {
@@ -348,7 +375,7 @@ const App = (function () {
     registerPage, navigate,
     openSidebar, closeSidebar,
     updateCurrentUserDisplay,
-    toggleTheme,
+    toggleTheme, updateSyncStatusIndicator,
     init,
     get currentPage() { return currentPage; }
   };
